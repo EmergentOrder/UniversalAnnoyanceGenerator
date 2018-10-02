@@ -7,7 +7,7 @@ lazy val root = (project in file(".")).
       scalaVersion := "2.11.12",
       version      := "0.1.0-SNAPSHOT"
     )),
-    name := "URAnnoyIndexGenerator",
+    name := "UniversalAnnoyanceGenerator",
     libraryDependencies ++= Seq("com.typesafe" % "config" % "1.3.2",
                                 "org.apache.httpcomponents" % "httpclient" % "4.5.6",
                                 "org.elasticsearch.client" % "elasticsearch-rest-client" % "5.6.9",
