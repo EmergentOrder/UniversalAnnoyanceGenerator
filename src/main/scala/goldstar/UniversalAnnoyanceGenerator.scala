@@ -75,7 +75,7 @@ val idField:JObject = ("field" -> "id")
     val compactJson = compact(render(json))
     logger.info(s"compact json is: ${compactJson}")
 
-    val eventsWithContent : Seq[(Int,Int)] 
+    val eventsWithContent : Seq[Product] 
 = EsClient.search(compactJson, esIndex, client) match {
       case Some(items) =>
         val hits = (items \ "hits" \ "hits").extract[Seq[JValue]]
@@ -88,15 +88,34 @@ val idField:JObject = ("field" -> "id")
                          }
 
           //TODO : Generalize
-          val field1Ids = fieldIds(0) 
+//          val field1Ids = fieldIds(0) 
 
-          field1Ids.map(y => (id, y))
+          fieldCombinations(fieldIds, id)
         }.flatten
 
       case None => Nil
   } 
 
   EsClient.close()
+
+  def fieldCombinations(fields: Seq[Seq[Int]], id: Int): Seq[Product] = {
+    fields.length match {
+    case 1 => fields match {case Seq(a) => a.map(x => toTuple(Seq(id, x))) }
+    case 2 => fields match {case Seq(a, b) => a.map(x => b.map(y => toTuple(Seq(id, x, y)))).flatten }
+    case 3 => fields match {case Seq(a, b, c) => a.map(x => b.map(y => c.map(z => toTuple(Seq(id, x, y, z))))).flatten.flatten }
+    case 4 => fields match {case Seq(a, b, c, d) => a.map(x => b.map(y => c.map(z => d.map(t => toTuple(Seq(id, x, y, z, t)))))).flatten.flatten.flatten }
+    case 5 => fields match {case Seq(a, b, c, d, e) => a.map(x => b.map(y => c.map(z => d.map(t => e.map(u => toTuple(Seq(id, x, y, z, t, u))))))).flatten.flatten.flatten.flatten }
+  }
+
+  }
+
+  def toTuple(from: Seq[Int]): Product = from.length match {
+    case 1 => from match {case Seq(a) => Tuple1(a) }
+    case 2 => from match {case Seq(a, b) => (a, b) }
+    case 3 => from match {case Seq(a, b, c) => (a, b, c) }
+    case 4 => from match {case Seq(a, b, c, d) => (a, b, c, d) }
+    case 5 => from match {case Seq(a, b, c, d, e) => (a, b, c, d, e) }
+  }
 
 
   val path = Paths.get(inputVectorFilename)
