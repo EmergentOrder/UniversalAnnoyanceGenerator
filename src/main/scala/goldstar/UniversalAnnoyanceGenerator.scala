@@ -57,14 +57,14 @@ val esPort = conf.getInt("UniversalAnnoyanceGenerator.esPort")
 
 val annoyResultDir = conf.getString("UniversalAnnoyanceGenerator.annoyResultDir")
 
-val fieldNames = conf.getStringList("UniversalAnnoyanceGenerator.fieldNames")
+val fieldNames: Array[String] = conf.getStringList("UniversalAnnoyanceGenerator.fieldNames").toArray.map(x => x.toString)
 
 val idField:JObject = ("field" -> "id")
   val json =
       ("size" -> numItems) ~
         ("query" ->
           ("exists" ->
-                ( fieldNames.asScala.map{x => 
+                ( fieldNames.map{x => 
                     val field:JObject = ("field" -> x)
                     field
                   }.fold(idField)(_ ~ _)
@@ -75,7 +75,7 @@ val idField:JObject = ("field" -> "id")
     val compactJson = compact(render(json))
     logger.info(s"compact json is: ${compactJson}")
 
-    val eventsWithContent : Seq[(Int, Int, Int)] 
+    val eventsWithContent : Seq[(Int,Int)] 
 = EsClient.search(compactJson, esIndex, client) match {
       case Some(items) =>
         val hits = (items \ "hits" \ "hits").extract[Seq[JValue]]
@@ -83,12 +83,15 @@ val idField:JObject = ("field" -> "id")
           val id = (hit \ "_id").extract[String].stripPrefix("Event-").toInt
           val source = hit \ "_source"
 
+          val fieldIds = fieldNames.map{x =>
+                           (source \ x).extract[Seq[Int]]
+                         }
 
-          val field1Ids = (source \ field1).extract[Seq[Int]]
-          val field2Ids = (source \ field2).extract[Seq[Int]]
+          //TODO : Generalize
+          val field1Ids = fieldIds(0) 
 
-          field2Ids.map(x => field1Ids.map(y => (id, y, x)))
-        }.flatten.flatten 
+          field1Ids.map(y => (id, y))
+        }.flatten
 
       case None => Nil
   } 
@@ -104,13 +107,15 @@ val idField:JObject = ("field" -> "id")
     .config("spark.master", "local[*]")
     .getOrCreate()
 
-  val df = spark.createDataFrame(eventsWithContent).toDF("id", field1, field2)
+  val vectorFieldNames = fieldNames.map(x => x + "_vector")
+
+  val df = spark.createDataFrame(eventsWithContent).toDF((Array("id") ++ fieldNames):_*)
   val encoder = new OneHotEncoderEstimator()
-    .setInputCols(Array(field1, field2))
-    .setOutputCols(Array(field1 + "_vector", field2 + "_vector"))
- 
+    .setInputCols(fieldNames)
+    .setOutputCols(vectorFieldNames)
+
   val assembler = (new VectorAssembler()
-                    .setInputCols(Array(field1 +"_vector", field2 + "_vector"))
+                    .setInputCols(vectorFieldNames)
                     .setOutputCol("features") )
 
 
