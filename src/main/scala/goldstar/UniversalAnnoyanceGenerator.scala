@@ -22,6 +22,7 @@ import org.apache.http.impl.nio.client.HttpAsyncClientBuilder
 import org.json4s.JArray
 import org.json4s.JInt
 import org.json4s.JValue
+import org.json4s.JObject
 import org.json4s.DefaultFormats
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
@@ -50,7 +51,6 @@ val esIndex: String = conf.getString("UniversalAnnoyanceGenerator.esIndex")
 val numItems =  conf.getInt("UniversalAnnoyanceGenerator.numItems") //Max allowable: 10000 in ES by default; change with index.max_result_window setting
 
 val inputVectorFilename = conf.getString("UniversalAnnoyanceGenerator.inputVectorFilename")
-val oneHotEncoderFilename = conf.getString("UniversalAnnoyanceGenerator.oneHotEncoderFilename")
 
 val esHost = conf.getString("UniversalAnnoyanceGenerator.esHost")
 val esPort = conf.getInt("UniversalAnnoyanceGenerator.esPort")
@@ -59,18 +59,18 @@ val annoyResultDir = conf.getString("UniversalAnnoyanceGenerator.annoyResultDir"
 
 val fieldNames = conf.getStringList("UniversalAnnoyanceGenerator.fieldNames")
 
-//Hard-coded to 2 fields 
-val field1 = fieldNames.get(0)
-val field2 = fieldNames.get(1)
-
+val idField:JObject = ("field" -> "id")
   val json =
       ("size" -> numItems) ~
         ("query" ->
           ("exists" ->
-                ("field" -> "id") ~
-                ("field" -> field1) ~
-                ("field" -> field2)) 
-           ) 
+                ( fieldNames.asScala.map{x => 
+                    val field:JObject = ("field" -> x)
+                    field
+                  }.fold(idField)(_ ~ _)
+                )
+          )
+        )
 
     val compactJson = compact(render(json))
     logger.info(s"compact json is: ${compactJson}")
@@ -86,10 +86,11 @@ val field2 = fieldNames.get(1)
 
           val field1Ids = (source \ field1).extract[Seq[Int]]
           val field2Ids = (source \ field2).extract[Seq[Int]]
-//          val distributionChannelIds = (hit \ "distribution_channel_ids").extract[Seq[Int]]
 
           field2Ids.map(x => field1Ids.map(y => (id, y, x)))
         }.flatten.flatten 
+
+      case None => Nil
   } 
 
   EsClient.close()
@@ -126,11 +127,6 @@ val field2 = fieldNames.get(1)
   }.toDF("id","features").as[EventWithContent]
 
   val inputVectors = assembled.collect().map(x => x.id + " " + x.features.mkString(" ")).mkString("\n")
-//  logger.info(encoded)
-
-//  logger.info(assembled)
-
-//  logger.info(inputVectors)
 
   val wrote = Files.write(path, inputVectors.getBytes("UTF-8"))
 
@@ -143,6 +139,7 @@ val field2 = fieldNames.get(1)
   val idsPath = Paths.get(tmpAnnoyDir + "/ids")
   val metricPath = Paths.get(tmpAnnoyDir + "/metric")
 
+  //Possible race between this and the loader
   Files.move(indexPath, Paths.get(annoyResultDir + "/annoy-index"), ATOMIC_MOVE)
   Files.move(dimensionPath, Paths.get(annoyResultDir + "/dimension"), ATOMIC_MOVE)
   Files.move(idsPath, Paths.get(annoyResultDir + "/ids"), ATOMIC_MOVE)
