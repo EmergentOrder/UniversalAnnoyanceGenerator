@@ -86,10 +86,6 @@ val idField:JObject = ("field" -> "id")
           val fieldIds = fieldNames.map{x =>
                            (source \ x).extract[Seq[Int]]
                          }
-
-          //TODO : Generalize
-//          val field1Ids = fieldIds(0) 
-
           fieldCombinations(fieldIds, id)
         }.flatten
 
