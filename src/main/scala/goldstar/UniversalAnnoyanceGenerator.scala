@@ -6,6 +6,8 @@ import org.apache.http.entity.StringEntity
 import org.apache.http.client.config.RequestConfig
 import org.apache.http.auth.{ AuthScope, UsernamePasswordCredentials }
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.Dataset
 import org.apache.spark.ml.feature.OneHotEncoderEstimator
 import org.apache.spark.ml.Pipeline
@@ -75,7 +77,7 @@ val idField:JObject = ("field" -> "id")
     val compactJson = compact(render(json))
     logger.info(s"compact json is: ${compactJson}")
 
-    val eventsWithContent : Seq[Product] 
+    val eventsWithContent : List[Row] 
 = EsClient.search(compactJson, esIndex, client) match {
       case Some(items) =>
         val hits = (items \ "hits" \ "hits").extract[Seq[JValue]]
@@ -87,32 +89,17 @@ val idField:JObject = ("field" -> "id")
                            (source \ x).extract[Seq[Int]]
                          }
           fieldCombinations(fieldIds, id)
-        }.flatten
+        }.flatten.toList
 
       case None => Nil
   } 
 
   EsClient.close()
 
-  def fieldCombinations(fields: Seq[Seq[Int]], id: Int): Seq[Product] = {
-    fields.length match {
-    case 1 => fields match {case Seq(a) => a.map(x => toTuple(Seq(id, x))) }
-    case 2 => fields match {case Seq(a, b) => a.map(x => b.map(y => toTuple(Seq(id, x, y)))).flatten }
-    case 3 => fields match {case Seq(a, b, c) => a.map(x => b.map(y => c.map(z => toTuple(Seq(id, x, y, z))))).flatten.flatten }
-    case 4 => fields match {case Seq(a, b, c, d) => a.map(x => b.map(y => c.map(z => d.map(t => toTuple(Seq(id, x, y, z, t)))))).flatten.flatten.flatten }
-    case 5 => fields match {case Seq(a, b, c, d, e) => a.map(x => b.map(y => c.map(z => d.map(t => e.map(u => toTuple(Seq(id, x, y, z, t, u))))))).flatten.flatten.flatten.flatten }
+  def fieldCombinations(fields: Seq[Seq[Int]], id: Int): List[Row] = {
+    val result = fields.foldLeft(Seq(Seq(id)))((b,a) => b.flatMap(x => a.map(y => x ++ Seq(y))))
+    result.map(x =>  Row.fromSeq(x)).toList
   }
-
-  }
-
-  def toTuple(from: Seq[Int]): Product = from.length match {
-    case 1 => from match {case Seq(a) => Tuple1(a) }
-    case 2 => from match {case Seq(a, b) => (a, b) }
-    case 3 => from match {case Seq(a, b, c) => (a, b, c) }
-    case 4 => from match {case Seq(a, b, c, d) => (a, b, c, d) }
-    case 5 => from match {case Seq(a, b, c, d, e) => (a, b, c, d, e) }
-  }
-
 
   val path = Paths.get(inputVectorFilename)
 
@@ -124,7 +111,10 @@ val idField:JObject = ("field" -> "id")
 
   val vectorFieldNames = fieldNames.map(x => x + "_vector")
 
-  val df = spark.createDataFrame(eventsWithContent).toDF((Array("id") ++ fieldNames):_*)
+  val finalFieldNames: Array[String] = (Array("id") ++ fieldNames)
+  val fields: Array[StructField] = finalFieldNames.map(fieldName => StructField(fieldName, IntegerType, nullable = true))
+  val df = spark.createDataFrame(eventsWithContent.asJava, StructType(fields)).toDF(finalFieldNames:_*)
+
   val encoder = new OneHotEncoderEstimator()
     .setInputCols(fieldNames)
     .setOutputCols(vectorFieldNames)
